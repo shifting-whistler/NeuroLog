@@ -23,13 +23,13 @@ interface FAQItem {
 
 const FAQ_ITEMS: FAQItem[] = [
   {
-    question: 'What is NeuroLog?',
+    question: 'Why not just use a normal notes/blocker app?',
     answer:
-      'NeuroLog is a floating task and thought-capturing companion that helps you keep track of things without needing to act on every thought immediately.',
+      "Normal blockers fight your thoughts. NeuroLog remembers them for you so you can stay focused without the fear of forgetting something creative. And sticky notes? Well… comparing NeuroLog to those feels illegal.",
   },
   {
     question: 'Who made NeuroLog?',
-    answer: <>NeuroLog was developed by Tanvir Mahtab. <i>(aka Shifting Whistler)</i></>,
+    answer: <>NeuroLog was developed by <b>Tanvir Mahtab</b>. <i>(aka Shifting Whistler)</i></>,
   },
   {
     question: 'Does NeuroLog collect or steal my data?',
@@ -39,11 +39,6 @@ const FAQ_ITEMS: FAQItem[] = [
   {
     question: 'Does NeuroLog require an internet connection?',
     answer: 'Nope. The app is designed to work completely offline.',
-  },
-  {
-    question: 'Why not just use a normal notes app?',
-    answer:
-      "Because NeuroLog is built around quick capture and visibility. It's always nearby, so you can dump a thought, remember it later, and get back to what you were doing.",
   },
   {
     question: 'Can I suggest a feature?',
