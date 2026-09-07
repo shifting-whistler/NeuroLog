@@ -90,7 +90,7 @@ export const SupportModal: React.FC = () => {
               Enjoying NeuroLog?
             </h2>
             <p className="text-xs text-slate-300 mt-2 leading-relaxed px-1">
-              If NeuroLog helps you anchor your attention and clear mental overload, starring the project on GitHub helps more minds find calm and clarity.
+              If NeuroLog makes your brain a little quieter, give it a star on GitHub. It might help someone else too !
             </p>
           </div>
 
