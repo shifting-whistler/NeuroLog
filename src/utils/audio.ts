@@ -1,7 +1,12 @@
-import { SoundTone } from '../types';
+import type { BuiltinAlarmSound, SoundTone } from '../types';
 
 class AudioEngine {
   private ctx: AudioContext | null = null;
+  private loopingAlarmTimer: number | null = null;
+  private loopingAlarmAudio: HTMLAudioElement | null = null;
+  private loopingAlarmObjectUrl: string | null = null;
+  private previewAudio: HTMLAudioElement | null = null;
+  private previewObjectUrl: string | null = null;
 
   private getContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -198,6 +203,97 @@ class AudioEngine {
       // AudioContext fallback handling
     }
   }
+  public playLoopingAlarm(soundId: BuiltinAlarmSound, volume: number) {
+    this.stopLoopingAlarm();
+    const loop = () => this.playAlarm(this.toProceduralTone(soundId), volume);
+    loop();
+    this.loopingAlarmTimer = window.setInterval(loop, 1450);
+  }
+
+  public async validateAudioData(bytes: number[] | Uint8Array): Promise<boolean> {
+    try {
+      const ctx = this.getContext();
+      if (!ctx) return false;
+      const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      const copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      await ctx.decodeAudioData(copy);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async previewCustomAlarm(bytes: number[] | Uint8Array, mimeType: string, volume: number) {
+    this.stopPreviewAlarm();
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const blob = new Blob([data], { type: mimeType || 'audio/mpeg' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.loop = false;
+    audio.volume = Math.min(1, Math.max(0, volume / 100));
+    this.previewObjectUrl = url;
+    this.previewAudio = audio;
+    audio.addEventListener('ended', () => this.stopPreviewAlarm(), { once: true });
+    try {
+      await audio.play();
+    } catch {
+      this.stopPreviewAlarm();
+    }
+  }
+
+  public stopPreviewAlarm() {
+    if (this.previewAudio) {
+      this.previewAudio.pause();
+      this.previewAudio.currentTime = 0;
+      this.previewAudio.src = '';
+      this.previewAudio = null;
+    }
+    if (this.previewObjectUrl) {
+      URL.revokeObjectURL(this.previewObjectUrl);
+      this.previewObjectUrl = null;
+    }
+  }
+
+  public async playLoopingCustomAlarm(bytes: number[] | Uint8Array, mimeType: string, volume: number) {
+    this.stopLoopingAlarm();
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const blob = new Blob([data], { type: mimeType || 'audio/mpeg' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.loop = true;
+    audio.volume = Math.min(1, Math.max(0, volume / 100));
+    this.loopingAlarmObjectUrl = url;
+    this.loopingAlarmAudio = audio;
+    try {
+      await audio.play();
+    } catch {
+      this.stopLoopingAlarm();
+    }
+  }
+
+  public stopLoopingAlarm() {
+    if (this.loopingAlarmTimer !== null) {
+      window.clearInterval(this.loopingAlarmTimer);
+      this.loopingAlarmTimer = null;
+    }
+    if (this.loopingAlarmAudio) {
+      this.loopingAlarmAudio.pause();
+      this.loopingAlarmAudio.currentTime = 0;
+      this.loopingAlarmAudio.src = '';
+      this.loopingAlarmAudio = null;
+    }
+    if (this.loopingAlarmObjectUrl) {
+      URL.revokeObjectURL(this.loopingAlarmObjectUrl);
+      this.loopingAlarmObjectUrl = null;
+    }
+  }
+
+  private toProceduralTone(soundId: BuiltinAlarmSound): SoundTone {
+    if (soundId === 'alarm-bell') return 'soft-bell';
+    if (soundId === 'alarm-digital') return 'sonar';
+    return 'zen-chime';
+  }
+
 }
 
 export const soundManager = new AudioEngine();

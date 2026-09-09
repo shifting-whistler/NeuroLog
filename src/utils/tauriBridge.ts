@@ -36,6 +36,8 @@ export type NativeWindowLabel =
   | 'about'
   | 'support'
   | 'timer-complete'
+  | 'alarm'
+  | 'alarm-popup'
   | 'click-through-control';
 
 export const WINDOW_LABELS = {
@@ -48,6 +50,8 @@ export const WINDOW_LABELS = {
   about: 'about' as NativeWindowLabel,
   support: 'support' as NativeWindowLabel,
   timerComplete: 'timer-complete' as NativeWindowLabel,
+  alarm: 'alarm' as NativeWindowLabel,
+  alarmPopup: 'alarm-popup' as NativeWindowLabel,
   clickThroughControl: 'click-through-control' as NativeWindowLabel,
 };
 
@@ -61,7 +65,7 @@ export const isNativeWindow = (label: NativeWindowLabel): boolean =>
 
 export const isPillWindow = () => isNativeWindow(WINDOW_LABELS.pill);
 export const isExpandedWindow = () => isNativeWindow(WINDOW_LABELS.expanded);
-export const isPopupWindow = () => ['quick-add', 'settings', 'stopwatch', 'about', 'support', 'timer-complete'].includes(getCurrentWindowLabel());
+export const isPopupWindow = () => ['quick-add', 'settings', 'stopwatch', 'about', 'support', 'timer-complete', 'alarm', 'alarm-popup'].includes(getCurrentWindowLabel());
 
 const getWindow = async (label?: NativeWindowLabel) => {
   if (!isTauriEnvironment()) return null;
@@ -200,11 +204,45 @@ export const syncGlobalShortcuts = async (quickAddShortcut: string, clickThrough
 export const sendNativeNotification = async (title: string, body: string) => {
   if (!isTauriEnvironment()) return;
   try {
-    const { sendNotification } = await import('@tauri-apps/plugin-notification');
+    const { isPermissionGranted, requestPermission, sendNotification } = await import('@tauri-apps/plugin-notification');
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === 'granted';
+    }
+    if (!granted) return;
     await sendNotification({ title, body });
   } catch (error) {
     console.warn('Could not send native notification:', error);
   }
+};
+
+export interface PickedAlarmSound {
+  id: string;
+  name: string;
+  file_name: string;
+  relative_path: string;
+  created_at: number;
+}
+
+export const pickAndStoreAlarmSound = async (): Promise<PickedAlarmSound | null> => {
+  if (!isTauriEnvironment()) return null;
+  try {
+    return await invoke<PickedAlarmSound | null>('pick_and_store_alarm_sound');
+  } catch (error) {
+    console.warn('Could not select alarm sound:', error);
+    throw error;
+  }
+};
+
+export const readAlarmSound = async (relativePath: string): Promise<number[]> => {
+  if (!isTauriEnvironment()) return [];
+  return await invoke<number[]>('read_alarm_sound', { relativePath });
+};
+
+export const removeAlarmSound = async (relativePath: string): Promise<void> => {
+  if (!isTauriEnvironment()) return;
+  await invoke('remove_alarm_sound', { relativePath });
 };
 
 export const startDraggingCurrentWindow = async (): Promise<void> => {

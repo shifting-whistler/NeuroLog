@@ -11,6 +11,8 @@ import { AboutModal } from './components/AboutModal';
 import { SupportModal } from './components/SupportModal';
 import { TimerCompletionModal } from './components/TimerCompletionModal';
 import { ClickThroughControl } from './components/ClickThroughControl';
+import { AlarmModal } from './components/AlarmModal';
+import { AlarmPopupModal } from './components/AlarmPopupModal';
 import { Download, Zap, EyeOff } from 'lucide-react';
 import { GITHUB_REPOSITORY_URL } from './config/links';
 import { getCurrentWindowLabel, openExternalUrl } from './utils/tauriBridge';
@@ -27,6 +29,8 @@ const MainAppContent: React.FC = () => {
     if (windowLabel === 'about') return <AboutModal />;
     if (windowLabel === 'support') return <SupportModal />;
     if (windowLabel === 'timer-complete') return <TimerCompletionModal />;
+    if (windowLabel === 'alarm') return <AlarmModal />;
+    if (windowLabel === 'alarm-popup') return <AlarmPopupModal />;
   }
 
   const {
@@ -113,11 +117,13 @@ const MainAppContent: React.FC = () => {
           <QuickAddModal />
           <SettingsModal />
           <StopwatchModal />
+          <AlarmModal />
           <AboutModal />
           <SupportModal />
           <DeleteConfirmModal />
           <TimerConflictModal />
           <TimerCompletionModal />
+          <AlarmPopupModal />
         </>
       )}
 

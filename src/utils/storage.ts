@@ -1,4 +1,5 @@
-import { AppSettings, Category, NeuroLogData, Task, UrgentTimerState } from '../types';
+import { Alarm, AlarmSoundFile, AppSettings, Category, NeuroLogData, Task, UrgentTimerState } from '../types';
+import { dedupeAlarmsBySchedule, normalizeAlarm } from './alarmScheduler';
 
 const STORAGE_KEY = 'neurolog_data_v1';
 
@@ -11,7 +12,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pillScale: 1.0,
   studyHidden: false,
 
-  enabledQuickActions: ['study', 'creative', 'urgent', 'stopwatch', 'quick_add'],
+  enabledQuickActions: ['study', 'creative', 'urgent', 'stopwatch', 'alarm', 'quick_add'],
 
   clickThroughShortcut: 'Ctrl+Alt+X',
   quickAddShortcut: 'Ctrl+Alt+N',
@@ -59,8 +60,43 @@ export const DEFAULT_SETTINGS: AppSettings = {
   soundTone: 'zen-chime',
   silentMode: false,
 
+  alarm: {
+    defaultSnoozeMinutes: 5,
+    snoozeDurationsMinutes: [5, 10, 15, 30],
+    lastSoundId: 'alarm-pulse',
+    defaultWindowsNotification: false,
+    respectSilentMode: false,
+  },
+
   launchOnStartup: true,
   minimizeToTray: true,
+};
+
+
+const normalizeAlarmSettings = (raw: unknown): AppSettings['alarm'] => {
+  const source = raw && typeof raw === 'object' ? raw as Partial<AppSettings['alarm']> : {};
+  const snooze = Array.isArray(source.snoozeDurationsMinutes)
+    ? source.snoozeDurationsMinutes
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value >= 1 && value <= 120)
+        .map((value) => Math.round(value))
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .sort((a, b) => a - b)
+    : [];
+  const defaultSnooze = Number(source.defaultSnoozeMinutes);
+  const legacyDefaultSound = (source as Partial<AppSettings['alarm']> & { defaultSoundId?: unknown }).defaultSoundId;
+  const lastSound = typeof source.lastSoundId === 'string' && source.lastSoundId.trim()
+    ? source.lastSoundId
+    : typeof legacyDefaultSound === 'string' && legacyDefaultSound.trim()
+    ? legacyDefaultSound
+    : DEFAULT_SETTINGS.alarm.lastSoundId;
+  return {
+    defaultSnoozeMinutes: Number.isFinite(defaultSnooze) ? Math.min(120, Math.max(1, Math.round(defaultSnooze))) : DEFAULT_SETTINGS.alarm.defaultSnoozeMinutes,
+    snoozeDurationsMinutes: snooze.length ? snooze : [...DEFAULT_SETTINGS.alarm.snoozeDurationsMinutes],
+    lastSoundId: lastSound,
+    defaultWindowsNotification: Boolean(source.defaultWindowsNotification),
+    respectSilentMode: Boolean(source.respectSilentMode),
+  };
 };
 
 export const DEFAULT_CATEGORIES: Category[] = [
@@ -128,29 +164,29 @@ export const INITIAL_TASKS: Task[] = [
   },
 ];
 
+export const BUILTIN_ALARM_SOUNDS: AlarmSoundFile[] = [];
+
+export const DEFAULT_ALARMS: Alarm[] = [];
+
+const buildInitialData = (): NeuroLogData => ({
+  version: 2,
+  exportedAt: Date.now(),
+  categories: DEFAULT_CATEGORIES,
+  tasks: INITIAL_TASKS,
+  urgentTimer: null,
+  alarms: DEFAULT_ALARMS,
+  alarmSounds: BUILTIN_ALARM_SOUNDS,
+  activeAlarm: null,
+  settings: DEFAULT_SETTINGS,
+});
+
 export const loadStoredData = (): NeuroLogData => {
-  if (typeof window === 'undefined') {
-    return {
-      version: 1,
-      exportedAt: Date.now(),
-      categories: DEFAULT_CATEGORIES,
-      tasks: INITIAL_TASKS,
-      urgentTimer: null,
-      settings: DEFAULT_SETTINGS,
-    };
-  }
+  if (typeof window === 'undefined') return buildInitialData();
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      const initial: NeuroLogData = {
-        version: 1,
-        exportedAt: Date.now(),
-        categories: DEFAULT_CATEGORIES,
-        tasks: INITIAL_TASKS,
-        urgentTimer: null,
-        settings: DEFAULT_SETTINGS,
-      };
+      const initial = buildInitialData();
       saveStoredData(initial);
       return initial;
     }
@@ -158,34 +194,40 @@ export const loadStoredData = (): NeuroLogData => {
     const parsed = JSON.parse(raw);
     const rawCategories = Array.isArray(parsed.categories) && parsed.categories.length > 0 ? parsed.categories : DEFAULT_CATEGORIES;
     const migratedCategories: Category[] = rawCategories.map((c: Category) => {
-      if (c.id === 'cat-urgent' || c.name.toLowerCase() === 'urgent') {
-        return { ...c, name: 'Timer' };
-      }
+      if (c.id === 'cat-urgent' || c.name.toLowerCase() === 'urgent') return { ...c, name: 'Timer' };
       return c;
     });
 
+    const settings = (() => {
+      const { alwaysOnTop: _legacyAlwaysOnTop, ...storedSettings } = (parsed.settings || {}) as Partial<AppSettings> & { alwaysOnTop?: unknown };
+      void _legacyAlwaysOnTop;
+      const storedAlarm = (storedSettings as Partial<AppSettings>).alarm;
+      return {
+        ...DEFAULT_SETTINGS,
+        ...storedSettings,
+        alarm: normalizeAlarmSettings(storedAlarm),
+      };
+    })();
+
+    const alarms: Alarm[] = Array.isArray(parsed.alarms) ? dedupeAlarmsBySchedule(parsed.alarms.map((alarm: Alarm) => normalizeAlarm(alarm))) : [];
+    const alarmSounds = Array.isArray(parsed.alarmSounds) ? parsed.alarmSounds.filter((sound: AlarmSoundFile) =>
+      sound && typeof sound.id === 'string' && typeof sound.relativePath === 'string' && typeof sound.fileName === 'string'
+    ) : [];
+
     return {
-      version: 1,
+      version: 2,
       exportedAt: parsed.exportedAt || Date.now(),
       categories: migratedCategories,
       tasks: Array.isArray(parsed.tasks) ? parsed.tasks : INITIAL_TASKS,
       urgentTimer: parsed.urgentTimer || null,
-      settings: (() => {
-        const { alwaysOnTop: _legacyAlwaysOnTop, ...storedSettings } = (parsed.settings || {}) as Partial<AppSettings> & { alwaysOnTop?: unknown };
-        void _legacyAlwaysOnTop;
-        return { ...DEFAULT_SETTINGS, ...storedSettings };
-      })(),
+      alarms,
+      alarmSounds,
+      activeAlarm: parsed.activeAlarm && typeof parsed.activeAlarm === 'object' ? parsed.activeAlarm : null,
+      settings,
     };
   } catch (err) {
     console.error('Failed to parse local storage, recovering defaults:', err);
-    return {
-      version: 1,
-      exportedAt: Date.now(),
-      categories: DEFAULT_CATEGORIES,
-      tasks: INITIAL_TASKS,
-      urgentTimer: null,
-      settings: DEFAULT_SETTINGS,
-    };
+    return buildInitialData();
   }
 };
 
@@ -246,9 +288,11 @@ export const validateImportData = (raw: unknown): { valid: boolean; data?: Neuro
       completedAt: typeof t.completedAt === 'number' ? t.completedAt : null,
     }));
 
+  const rawSettings = typeof obj.settings === 'object' && obj.settings !== null ? obj.settings as Partial<AppSettings> : {};
   const validatedSettings: AppSettings = {
     ...DEFAULT_SETTINGS,
-    ...(typeof obj.settings === 'object' && obj.settings !== null ? obj.settings : {}),
+    ...rawSettings,
+    alarm: normalizeAlarmSettings(rawSettings.alarm),
   };
 
   let urgentTimer: UrgentTimerState | null = null;
@@ -264,14 +308,25 @@ export const validateImportData = (raw: unknown): { valid: boolean; data?: Neuro
     };
   }
 
+  const validatedAlarms: Alarm[] = Array.isArray((obj as NeuroLogData).alarms)
+    ? dedupeAlarmsBySchedule(((obj as NeuroLogData).alarms as unknown[]).filter((alarm): alarm is Alarm => Boolean(alarm && typeof alarm === 'object')).map((alarm) => normalizeAlarm(alarm)))
+    : [];
+
+  const validatedAlarmSounds: AlarmSoundFile[] = Array.isArray((obj as NeuroLogData).alarmSounds)
+    ? ((obj as NeuroLogData).alarmSounds as unknown[]).filter((sound): sound is AlarmSoundFile => Boolean(sound && typeof sound === 'object' && typeof (sound as AlarmSoundFile).id === 'string' && typeof (sound as AlarmSoundFile).relativePath === 'string' && typeof (sound as AlarmSoundFile).fileName === 'string'))
+    : [];
+
   return {
     valid: true,
     data: {
-      version: 1,
+      version: 2,
       exportedAt: Date.now(),
       categories: validatedCategories,
       tasks: validatedTasks,
       urgentTimer,
+      alarms: validatedAlarms,
+      alarmSounds: validatedAlarmSounds,
+      activeAlarm: null,
       settings: validatedSettings,
     },
   };

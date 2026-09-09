@@ -36,19 +36,19 @@ export interface UrgentTimerState {
 export interface CreativeSchedule {
   id: string;
   label: string;
-  startTime: string; // "HH:MM" 24h format
-  endTime: string;   // "HH:MM" 24h format
+  startTime: string;
+  endTime: string;
   enabled: boolean;
 }
 
 export type CompletedPlacement = 'global' | 'subcategories';
 export type SoundTone = 'zen-chime' | 'soft-bell' | 'marimba' | 'sonar';
-export type QuickActionKey = 'study' | 'creative' | 'urgent' | 'timer' | 'stopwatch' | 'quick_add' | 'click_through';
+export type QuickActionKey = 'study' | 'creative' | 'urgent' | 'timer' | 'stopwatch' | 'alarm' | 'quick_add' | 'click_through';
 
 export interface StopwatchState {
   isRunning: boolean;
-  startTime: number | null; // Date.now() timestamp when current run started
-  accumulatedMs: number;    // accumulated elapsed ms before current run
+  startTime: number | null;
+  accumulatedMs: number;
   laps: { id: string; timeMs: number; lapDiffMs: number }[];
 }
 
@@ -58,22 +58,68 @@ export interface TimerPreset {
   seconds: number;
 }
 
+export type BuiltinAlarmSound = 'alarm-pulse' | 'alarm-bell' | 'alarm-digital';
+export type AlarmRepeat =
+  | { type: 'once' }
+  | { type: 'daily' }
+  | { type: 'weekly'; weekdays: number[] }
+  | { type: 'custom'; intervalDays: number; startDate: string };
+
+export interface AlarmSoundFile {
+  id: string;
+  name: string;
+  fileName: string;
+  relativePath: string;
+  createdAt: number;
+}
+
+export interface Alarm {
+  id: string;
+  time: string;
+  date?: string;
+  label: string;
+  enabled: boolean;
+  soundId: BuiltinAlarmSound | string;
+  repeat: AlarmRepeat;
+  windowsNotification: boolean;
+  lastTriggeredAt?: number;
+  lastOutcome?: 'triggered' | 'missed' | 'dismissed';
+  lastOutcomeAt?: number;
+}
+
+export interface ActiveAlarmState {
+  alarmId: string;
+  scheduledFor: number;
+  triggeredAt: number;
+  missed: boolean;
+  snoozeUntil?: number;
+  snoozeCount: number;
+}
+
+export interface AlarmSettings {
+  defaultSnoozeMinutes: number;
+  snoozeDurationsMinutes: number[];
+  lastSoundId: BuiltinAlarmSound | string;
+  defaultWindowsNotification: boolean;
+  respectSilentMode: boolean;
+}
+
 export interface AppSettings {
   // Appearance
   theme: 'dark' | 'light';
-  bgOpacity: number; // 0.3 - 1.0
-  glassBlur: number; // 0 - 30 px
-  widgetOpacity: number; // 0.3 - 1.0
-  clickThroughOpacity: number; // 0.05 - 0.9
-  pillScale?: number; // 0.7 - 1.4 (default 1.0)
+  bgOpacity: number;
+  glassBlur: number;
+  widgetOpacity: number;
+  clickThroughOpacity: number;
+  pillScale?: number;
   studyHidden?: boolean;
 
   // Floating Widget Quick Actions
   enabledQuickActions: QuickActionKey[];
 
   // Floating Widget & Layout
-  clickThroughShortcut: string; // e.g. "Ctrl+Alt+X"
-  quickAddShortcut: string; // e.g. "Ctrl+Alt+N"
+  clickThroughShortcut: string;
+  quickAddShortcut: string;
   rememberPosition: boolean;
   lastPosition: { x: number; y: number };
   showClickThroughIndicator: boolean;
@@ -97,9 +143,12 @@ export interface AppSettings {
   // Urgent & Notifications
   urgentSound: boolean;
   urgentNotification: boolean;
-  soundVolume: number; // 0 - 100
+  soundVolume: number;
   soundTone: SoundTone;
   silentMode: boolean;
+
+  // Alarm
+  alarm: AlarmSettings;
 
   // System
   launchOnStartup: boolean;
@@ -112,5 +161,8 @@ export interface NeuroLogData {
   categories: Category[];
   tasks: Task[];
   urgentTimer: UrgentTimerState | null;
+  alarms: Alarm[];
+  alarmSounds: AlarmSoundFile[];
+  activeAlarm: ActiveAlarmState | null;
   settings: AppSettings;
 }

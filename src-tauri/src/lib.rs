@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{atomic::{AtomicU64, Ordering}, Mutex, OnceLock};
+use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -89,6 +91,104 @@ fn import_backup() -> Result<Option<String>, String> {
         .map_err(|e| format!("Failed to read backup file: {e}"))
 }
 
+#[derive(Debug, Serialize)]
+struct StoredAlarmSound {
+    id: String,
+    name: String,
+    file_name: String,
+    relative_path: String,
+    created_at: u64,
+}
+
+fn alarm_sounds_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve NeuroLog app data directory: {e}"))?
+        .join("alarm-sounds");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create alarm sound directory: {e}"))?;
+    Ok(dir)
+}
+
+fn supported_alarm_extension(path: &std::path::Path) -> Option<String> {
+    match path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()) {
+        Some(ext) if matches!(ext.as_str(), "mp3" | "wav" | "ogg" | "m4a" | "aac") => Some(ext),
+        _ => None,
+    }
+}
+
+static ALARM_SOUND_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[tauri::command]
+fn pick_and_store_alarm_sound(app: tauri::AppHandle) -> Result<Option<StoredAlarmSound>, String> {
+    let path = rfd::FileDialog::new()
+        .set_title("Choose NeuroLog Alarm Sound")
+        .add_filter("Audio files", &["mp3", "wav", "ogg", "m4a", "aac"])
+        .pick_file();
+
+    let Some(source) = path else { return Ok(None); };
+    let Some(extension) = supported_alarm_extension(&source) else {
+        return Err("Unsupported alarm sound format. Use MP3, WAV, OGG, M4A, or AAC.".to_string());
+    };
+    const MAX_ALARM_SOUND_BYTES: u64 = 50 * 1024 * 1024;
+    let metadata = std::fs::metadata(&source).map_err(|e| format!("Failed to inspect alarm sound: {e}"))?;
+    if metadata.len() > MAX_ALARM_SOUND_BYTES {
+        return Err("Alarm sound is too large. Please choose an audio file under 50 MB.".to_string());
+    }
+
+    let counter = ALARM_SOUND_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let now = chrono_like_timestamp();
+    let id = format!("custom-{}-{}-{}", std::process::id(), now, counter);
+    let file_name = format!("{}.{}", id, extension);
+    let directory = alarm_sounds_directory(&app)?;
+    let target = directory.join(&file_name);
+    std::fs::copy(&source, &target).map_err(|e| format!("Failed to copy alarm sound: {e}"))?;
+
+    Ok(Some(StoredAlarmSound {
+        id: id.clone(),
+        name: source.file_stem().and_then(|name| name.to_str()).unwrap_or("Custom alarm").trim().to_string(),
+        file_name: file_name.clone(),
+        relative_path: format!("alarm-sounds/{}", file_name),
+        created_at: chrono_like_timestamp(),
+    }))
+}
+
+fn chrono_like_timestamp() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+
+#[tauri::command]
+fn read_alarm_sound(app: tauri::AppHandle, relative_path: String) -> Result<Vec<u8>, String> {
+    if relative_path.contains("..") || relative_path.starts_with('/') || relative_path.contains('\\') {
+        return Err("Invalid alarm sound path.".to_string());
+    }
+    let directory = alarm_sounds_directory(&app)?;
+    let path = app.path().app_data_dir().map_err(|e| format!("Failed to resolve NeuroLog app data directory: {e}"))?.join(relative_path);
+    if !path.starts_with(&directory) {
+        return Err("Alarm sound path is outside the NeuroLog sound directory.".to_string());
+    }
+    std::fs::read(&path).map_err(|e| format!("Failed to read alarm sound: {e}"))
+}
+
+#[tauri::command]
+fn remove_alarm_sound(app: tauri::AppHandle, relative_path: String) -> Result<(), String> {
+    if relative_path.contains("..") || relative_path.starts_with('/') || relative_path.contains('\\') {
+        return Err("Invalid alarm sound path.".to_string());
+    }
+    let directory = alarm_sounds_directory(&app)?;
+    let path = app.path().app_data_dir().map_err(|e| format!("Failed to resolve NeuroLog app data directory: {e}"))?.join(relative_path);
+    if !path.starts_with(&directory) {
+        return Err("Alarm sound path is outside the NeuroLog sound directory.".to_string());
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("Failed to remove alarm sound: {err}")),
+    }
+}
+
 #[tauri::command]
 fn set_launch_on_startup(enabled: bool) -> Result<(), String> {
     #[cfg(windows)]
@@ -156,7 +256,7 @@ fn hide_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.hide().map_err(|e| e.to_string())
 }
 
-const NEUROLOG_WINDOW_LABELS: [&str; 9] = [
+const NEUROLOG_WINDOW_LABELS: [&str; 11] = [
     "main",
     "expanded",
     "quick-add",
@@ -165,6 +265,8 @@ const NEUROLOG_WINDOW_LABELS: [&str; 9] = [
     "about",
     "support",
     "timer-complete",
+    "alarm",
+    "alarm-popup",
     "click-through-control",
 ];
 
@@ -310,7 +412,10 @@ pub fn run() {
             set_window_glass,
             sync_global_shortcuts,
             export_backup,
-            import_backup
+            import_backup,
+            pick_and_store_alarm_sound,
+            read_alarm_sound,
+            remove_alarm_sound
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
