@@ -21,6 +21,7 @@ import {
   BookOpen,
   Clock,
   Timer,
+  AlarmClock,
   Zap,
   EyeOff,
 } from 'lucide-react';
@@ -119,7 +120,7 @@ export const SettingsModal: React.FC = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<
-    'appearance' | 'widget' | 'tasks' | 'creative' | 'audio' | 'data'
+    'appearance' | 'widget' | 'tasks' | 'creative' | 'audio' | 'alarm' | 'data'
   >('appearance');
 
   const [newScheduleLabel, setNewScheduleLabel] = useState('');
@@ -245,14 +246,14 @@ export const SettingsModal: React.FC = () => {
   };
 
   const toggleQuickAction = (key: QuickActionKey) => {
-    const current = settings.enabledQuickActions || ['study', 'creative', 'urgent', 'stopwatch', 'quick_add'];
+    const current = settings.enabledQuickActions || ['study', 'creative', 'urgent', 'stopwatch', 'alarm', 'quick_add'];
     const updated = current.includes(key)
       ? current.filter((k) => k !== key)
       : [...current, key];
     updateSettings({ enabledQuickActions: updated });
   };
 
-  const enabledActions = settings.enabledQuickActions || ['study', 'creative', 'urgent', 'stopwatch', 'quick_add'];
+  const enabledActions = settings.enabledQuickActions || ['study', 'creative', 'urgent', 'stopwatch', 'alarm', 'quick_add'];
 
   return (
     <div
@@ -315,6 +316,7 @@ export const SettingsModal: React.FC = () => {
             { id: 'widget', label: 'Widget & Actions', icon: Sliders },
             { id: 'tasks', label: 'Tasks', icon: CheckSquare },
             { id: 'creative', label: 'Creative Time', icon: Lightbulb },
+            { id: 'alarm', label: 'Alarm', icon: AlarmClock },
             { id: 'audio', label: 'Audio & Alerts', icon: Volume2 },
             { id: 'data', label: 'Data & Project', icon: HardDrive },
           ].map((tab) => {
@@ -492,6 +494,13 @@ export const SettingsModal: React.FC = () => {
                       desc: 'One-click stopwatch launcher',
                       icon: Timer,
                       color: 'text-cyan-400',
+                    },
+                    {
+                      key: 'alarm' as QuickActionKey,
+                      label: 'Alarm',
+                      desc: 'Scheduled attention alarm',
+                      icon: AlarmClock,
+                      color: 'text-violet-400',
                     },
                     {
                       key: 'quick_add' as QuickActionKey,
@@ -849,6 +858,37 @@ export const SettingsModal: React.FC = () => {
             </div>
           )}
 
+          {/* TAB 5: ALARM */}
+          {activeTab === 'alarm' && (
+            <div className="space-y-4">
+              <div className={`p-3 rounded-xl border ${settings.theme === 'light' ? 'bg-violet-50 border-violet-200' : 'bg-violet-500/[0.06] border-violet-500/20'}`}>
+                <div className="flex items-center gap-2 text-violet-600 dark:text-violet-300 font-semibold text-xs"><AlarmClock className="w-4 h-4" /> NeuroLog Alarm Engine</div>
+                <p className={`text-[11px] mt-1.5 ${settings.theme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>Alarms are scheduled by NeuroLog in the background. This tab controls global defaults; individual alarms keep their own time, repeat, sound, and notification choices.</p>
+              </div>
+
+              <div className="space-y-2.5">
+                <span className={`font-medium block ${settings.theme === 'light' ? 'text-slate-900' : 'text-slate-200'}`}>Snooze</span>
+                <div className={`flex items-center justify-between p-3 rounded-xl border ${settings.theme === 'light' ? 'bg-white border-slate-200' : 'bg-[#0d0d0e] border-white/[0.08]'}`}>
+                  <div><span className={`text-xs font-medium ${settings.theme === 'light' ? 'text-slate-900' : 'text-slate-200'}`}>Default snooze duration</span><p className={`text-[10px] ${settings.theme === 'light' ? 'text-slate-500' : 'text-slate-500'}`}>Used when an alarm is snoozed without choosing another value.</p></div>
+                  <select value={settings.alarm.defaultSnoozeMinutes} onChange={(e) => updateSettings({ alarm: { ...settings.alarm, defaultSnoozeMinutes: Number(e.target.value) } })} className={`px-2 py-1 rounded-lg border text-xs font-mono ${settings.theme === 'light' ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-[#16161a] border-white/[0.08] text-slate-200'}`}>
+                    {[5, 10, 15, 20, 30].map((minute) => <option key={minute} value={minute}>{minute} min</option>)}
+                  </select>
+                </div>
+                <div className={`p-3 rounded-xl border ${settings.theme === 'light' ? 'bg-white border-slate-200' : 'bg-[#0d0d0e] border-white/[0.08]'}`}>
+                  <div className="flex items-center justify-between mb-2"><div><span className={`text-xs font-medium ${settings.theme === 'light' ? 'text-slate-900' : 'text-slate-200'}`}>Snooze choices</span><p className={`text-[10px] ${settings.theme === 'light' ? 'text-slate-500' : 'text-slate-500'}`}>These values appear directly on the alarm popup.</p></div></div>
+                  <div className="flex flex-wrap gap-1.5">{[5,10,15,20,30].map((minute) => { const active = settings.alarm.snoozeDurationsMinutes.includes(minute); return <button key={minute} onClick={() => updateSettings({ alarm: { ...settings.alarm, snoozeDurationsMinutes: active ? settings.alarm.snoozeDurationsMinutes.filter((value) => value !== minute) : [...settings.alarm.snoozeDurationsMinutes, minute].sort((a,b) => a-b) } })} className={`px-2.5 py-1.5 rounded-lg text-[10px] font-mono border ${active ? 'bg-violet-500/15 border-violet-500/35 text-violet-600 dark:text-violet-300' : settings.theme === 'light' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-white/[0.03] border-white/[0.07] text-slate-400'}`}>{minute}m</button>; })}</div>
+                </div>
+              </div>
+
+              <div className={`pt-2 border-t space-y-2.5 ${settings.theme === 'light' ? 'border-slate-200' : 'border-white/[0.08]'}`}>
+                <span className={`font-medium block ${settings.theme === 'light' ? 'text-slate-900' : 'text-slate-200'}`}>Alarm defaults</span>
+                <label className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer ${settings.theme === 'light' ? 'bg-white border-slate-200' : 'bg-[#0d0d0e] border-white/[0.08]'}`}><div><span className={`text-xs font-medium ${settings.theme === 'light' ? 'text-slate-900' : 'text-slate-200'}`}>Windows-native notification by default</span><p className={`text-[10px] ${settings.theme === 'light' ? 'text-slate-500' : 'text-slate-500'}`}>Adds a native Windows toast at alarm time; NeuroLog remains the scheduling authority.</p></div><input type="checkbox" checked={settings.alarm.defaultWindowsNotification} onChange={(e) => updateSettings({ alarm: { ...settings.alarm, defaultWindowsNotification: e.target.checked } })} className="rounded border-slate-400 bg-transparent text-violet-500" /></label>
+                <label className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer ${settings.theme === 'light' ? 'bg-white border-slate-200' : 'bg-[#0d0d0e] border-white/[0.08]'}`}><div><span className={`text-xs font-medium ${settings.theme === 'light' ? 'text-slate-900' : 'text-slate-200'}`}>Honor Silent Mode for alarms</span><p className={`text-[10px] ${settings.theme === 'light' ? 'text-slate-500' : 'text-slate-500'}`}>Off by default so an alarm behaves like an alarm clock.</p></div><input type="checkbox" checked={settings.alarm.respectSilentMode} onChange={(e) => updateSettings({ alarm: { ...settings.alarm, respectSilentMode: e.target.checked } })} className="rounded border-slate-400 bg-transparent text-violet-500" /></label>
+              </div>
+
+              <div className={`pt-2 border-t text-[10px] leading-relaxed ${settings.theme === 'light' ? 'border-slate-200 text-slate-500' : 'border-white/[0.08] text-slate-500'}`}>Windows Clock alarm creation is not exposed as a stable public API for this desktop architecture. The Windows option therefore uses NeuroLog’s existing native notification layer rather than a fragile shell/Clock integration.</div>            </div>
+          )}
+
           {/* TAB 5: AUDIO & ALERTS */}
           {activeTab === 'audio' && (
             <div className="space-y-4">
@@ -1077,7 +1117,7 @@ export const SettingsModal: React.FC = () => {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 bg-[#0d0d0e]/80 border-t border-white/[0.08] text-[11px] text-slate-500 shrink-0">
-          <span>NeuroLog v1.0.0 · Local & Offline</span>
+          <span>NeuroLog v1.1.0 · Local & Offline</span>
           <button
             onClick={() => setIsSettingsOpen(false)}
             className="px-4 py-1.5 rounded-xl bg-white/[0.08] text-slate-200 font-medium hover:bg-white/[0.12] transition-colors border border-white/[0.08]"

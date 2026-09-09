@@ -23,6 +23,11 @@ interface FAQItem {
 
 const FAQ_ITEMS: FAQItem[] = [
   {
+    question: "What's new in v1.1.0?",
+    answer:
+      'v1.1.0 adds the Alarm system with recurring scheduling, snooze and alarm controls, custom alarm sounds, and more reliable background scheduling, persistence, and recovery.',
+  },
+  {
     question: 'Why not just use a normal notes/blocker app?',
     answer:
       "Normal blockers fight your thoughts. NeuroLog remembers them for you so you can stay focused without the fear of forgetting something creative. And sticky notes? Well… comparing NeuroLog to those feels illegal.",
@@ -130,7 +135,7 @@ export const AboutModal: React.FC = () => {
               <h3 className="font-bold text-xs text-slate-100 uppercase tracking-wider font-mono">
                 About NeuroLog
               </h3>
-              <p className="text-[10px] text-slate-400 font-mono">v1.0.0 · Local & Offline</p>
+              <p className="text-[10px] text-slate-400 font-mono">v1.1.0 · Local & Offline</p>
             </div>
           </div>
 

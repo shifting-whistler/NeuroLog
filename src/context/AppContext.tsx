@@ -1,8 +1,17 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AppSettings, Category, NeuroLogData, StopwatchState, Task, UrgentTimerState } from '../types';
+import { Alarm, AlarmSoundFile, AppSettings, Category, NeuroLogData, StopwatchState, Task, UrgentTimerState } from '../types';
 import { soundManager } from '../utils/audio';
 import { clearAllStoredData, DEFAULT_CATEGORIES, DEFAULT_SETTINGS, INITIAL_TASKS, loadStoredData, saveStoredData } from '../utils/storage';
-import { getCurrentWindowLabel, getPillScreenPosition, hideAllNativeWindows, hideNativeWindow, isPillWindow, isPopupWindow, isTauriEnvironment, openNativeWindow, positionExpandedWindowNearPill, setNativeGlassEffect, setLaunchOnStartup, syncGlobalShortcuts, WINDOW_LABELS, sendNativeNotification } from '../utils/tauriBridge';
+import { getCurrentWindowLabel, getPillScreenPosition, hideAllNativeWindows, hideNativeWindow, isPillWindow, isPopupWindow, isTauriEnvironment, openNativeWindow, positionExpandedWindowNearPill, setNativeGlassEffect, setLaunchOnStartup, syncGlobalShortcuts, WINDOW_LABELS, sendNativeNotification, readAlarmSound } from '../utils/tauriBridge';
+import { getAlarmScheduleKey, getDueOccurrence, ALARM_MISSED_GRACE_MS, normalizeAlarm, normalizeAlarmData } from '../utils/alarmScheduler';
+
+const formatAlarmClockTime = (time: string): string => {
+  const [hour, minute] = time.split(':').map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return time;
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date);
+};
 
 interface AppContextType {
   categories: Category[];
@@ -17,6 +26,10 @@ interface AppContextType {
   isAboutOpen: boolean;
   isSupportOpen: boolean;
   isStopwatchOpen: boolean;
+  isAlarmOpen: boolean;
+  alarms: Alarm[];
+  alarmSounds: AlarmSoundFile[];
+  activeAlarm: NeuroLogData['activeAlarm'];
   stopwatchState: StopwatchState;
   timesUpModalOpen: boolean;
   activeConflict: { pendingTitle: string; pendingDuration: number } | null;
@@ -33,6 +46,7 @@ interface AppContextType {
   setIsAboutOpen: (open: boolean) => void;
   setIsSupportOpen: (open: boolean) => void;
   setIsStopwatchOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  setIsAlarmOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   setTimesUpModalOpen: (open: boolean) => void;
   setActiveConflict: (conflict: { pendingTitle: string; pendingDuration: number } | null) => void;
   setTaskToDelete: (task: Task | null) => void;
@@ -65,6 +79,16 @@ interface AppContextType {
   resetStopwatch: () => void;
   addStopwatchLap: () => void;
   clearStopwatchLaps: () => void;
+
+  // Alarm actions
+  addAlarm: (alarm: Alarm) => boolean;
+  updateAlarm: (alarmId: string, updates: Partial<Alarm>) => boolean;
+  deleteAlarm: (alarmId: string) => void;
+  addAlarmSound: (sound: AlarmSoundFile) => void;
+  deleteAlarmSound: (soundId: string) => void;
+  toggleAlarm: (alarmId: string) => void;
+  dismissAlarm: () => void;
+  snoozeAlarm: (minutes?: number) => void;
 
   updateSettings: (updated: Partial<AppSettings>) => void;
   resetSettings: () => void;
@@ -116,6 +140,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAboutOpen, setIsAboutOpen] = useState<boolean>(false);
   const [isSupportOpen, setIsSupportOpen] = useState<boolean>(false);
   const [isStopwatchOpen, setIsStopwatchOpen] = useState<boolean>(false);
+  const [isAlarmOpen, setIsAlarmOpen] = useState<boolean>(false);
 
   const isExpandedRef = useRef(false);
   const isQuickAddOpenRef = useRef(false);
@@ -123,11 +148,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isAboutOpenRef = useRef(false);
   const isSupportOpenRef = useRef(false);
   const isStopwatchOpenRef = useRef(false);
+  const isAlarmOpenRef = useRef(false);
   const isClickThroughRef = useRef(false);
   const expandedSetterRef = useRef<((open: boolean | ((prev: boolean) => boolean)) => void) | undefined>(undefined);
   const settingsSetterRef = useRef<((open: boolean | ((prev: boolean) => boolean)) => void) | undefined>(undefined);
   const stopUrgentTimerRef = useRef<((markDone?: boolean) => void) | undefined>(undefined);
   const extendUrgentTimerRef = useRef<((additionalSeconds: number) => void) | undefined>(undefined);
+  const alarmSoundKeyRef = useRef<string | null>(null);
+  const alarmTriggerInFlightRef = useRef(false);
+  const alarmPopupShownRef = useRef(false);
+  const alarmDeliveryGenerationRef = useRef(0);
+  const startAlarmSoundRef = useRef<(alarm: Alarm, generation?: number) => Promise<void>>(async () => undefined);
+  const dismissAlarmRef = useRef<(() => void) | undefined>(undefined);
+  const snoozeAlarmRef = useRef<((minutes?: number) => void) | undefined>(undefined);
   const shortcutSyncChainRef = useRef<Promise<void>>(Promise.resolve());
   const shortcutGenerationRef = useRef(0);
   const dataSaveTimerRef = useRef<number | undefined>(undefined);
@@ -138,6 +171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   isAboutOpenRef.current = isAboutOpen;
   isSupportOpenRef.current = isSupportOpen;
   isStopwatchOpenRef.current = isStopwatchOpen;
+  isAlarmOpenRef.current = isAlarmOpen;
   isClickThroughRef.current = isClickThrough;
 
   const [stopwatchState, setStopwatchState] = useState<StopwatchState>({
@@ -215,8 +249,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const parsed = JSON.parse(event.newValue) as NeuroLogData;
         if (!parsed || !Array.isArray(parsed.categories) || !Array.isArray(parsed.tasks)) return;
-        setData(parsed);
-        if (parsed.categories.length && !parsed.categories.some((c) => c.id === activeCategoryId)) {
+        const normalized = normalizeAlarmData(parsed);
+        setData(normalized);
+        if (normalized.categories.length && !parsed.categories.some((c) => c.id === activeCategoryId)) {
           setActiveCategoryId(parsed.categories[0].id);
         }
       } catch {
@@ -304,7 +339,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Escape closes the currently focused popup or modal. Global shortcuts remain
   // native/OS-level and therefore do not depend on this listener.
   useEffect(() => {
-    if (!isPopupWindow()) return;
+    if (!isPopupWindow() || currentWindowLabel === WINDOW_LABELS.alarmPopup) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         void hideNativeWindow(currentWindowLabel as any);
@@ -313,6 +348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [currentWindowLabel]);
+
 
   // Urgent Timer & Creative Schedule Engine Loop (1 second tick)
   useEffect(() => {
@@ -499,6 +535,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncNativeSurface('stopwatch', next);
   }, [syncNativeSurface]);
 
+  const setAlarmOpen = useCallback((open: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof open === 'function' ? open(isAlarmOpenRef.current) : open;
+    isAlarmOpenRef.current = next;
+    setIsAlarmOpen(next);
+    syncNativeSurface('alarm', next);
+  }, [syncNativeSurface]);
+
   const toggleClickThrough = useCallback(() => {
     const next = !isClickThroughRef.current;
     isClickThroughRef.current = next;
@@ -591,6 +634,115 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [toggleClickThrough, setQuickAddOpen]);
 
+
+  const stopAlarmSound = useCallback(() => {
+    soundManager.stopLoopingAlarm();
+    alarmSoundKeyRef.current = null;
+  }, []);
+
+  const startAlarmSound = useCallback(async (alarm: Alarm, generation = alarmDeliveryGenerationRef.current) => {
+    const soundKey = `${alarm.id}:${alarm.soundId}`;
+    if (alarmSoundKeyRef.current === soundKey) return;
+    if (generation !== alarmDeliveryGenerationRef.current) return;
+    if (data.settings.alarm.respectSilentMode && data.settings.silentMode) return;
+    if (data.settings.soundVolume <= 0) return;
+
+    const custom = data.alarmSounds.find((sound) => sound.id === alarm.soundId);
+    if (custom && isTauriEnvironment()) {
+      try {
+        const bytes = await readAlarmSound(custom.relativePath);
+        if (generation !== alarmDeliveryGenerationRef.current) return;
+        const extension = custom.fileName.split('.').pop()?.toLowerCase() || 'mp3';
+        const mime = extension === 'wav' ? 'audio/wav' : extension === 'ogg' ? 'audio/ogg' : extension === 'm4a' ? 'audio/mp4' : extension === 'aac' ? 'audio/aac' : 'audio/mpeg';
+        await soundManager.playLoopingCustomAlarm(bytes, mime, data.settings.soundVolume);
+        if (generation !== alarmDeliveryGenerationRef.current) {
+          soundManager.stopLoopingAlarm();
+          return;
+        }
+        alarmSoundKeyRef.current = soundKey;
+        return;
+      } catch (error) {
+        if (generation !== alarmDeliveryGenerationRef.current) return;
+        console.warn('Could not play custom alarm sound; falling back to a bundled alarm tone:', error);
+      }
+    }
+
+    if (generation !== alarmDeliveryGenerationRef.current) return;
+    soundManager.playLoopingAlarm(
+      (alarm.soundId === 'alarm-bell' || alarm.soundId === 'alarm-digital' ? alarm.soundId : 'alarm-pulse') as 'alarm-pulse' | 'alarm-bell' | 'alarm-digital',
+      data.settings.soundVolume,
+    );
+    if (generation === alarmDeliveryGenerationRef.current) alarmSoundKeyRef.current = soundKey;
+  }, [data.alarmSounds, data.settings.alarm.respectSilentMode, data.settings.silentMode, data.settings.soundVolume]);
+
+  startAlarmSoundRef.current = startAlarmSound;
+
+  const dismissAlarm = useCallback(() => {
+    ++alarmDeliveryGenerationRef.current;
+    stopAlarmSound();
+    alarmPopupShownRef.current = false;
+    const current = normalizeAlarmData(loadStoredData());
+    if (!current.activeAlarm) {
+      if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+      setData(current);
+      return;
+    }
+
+    const activeId = current.activeAlarm.alarmId;
+    const nextData = {
+      ...current,
+      alarms: current.alarms.map((alarm) => alarm.id === activeId
+        ? { ...alarm, lastOutcome: 'dismissed' as const, lastOutcomeAt: Date.now() }
+        : alarm),
+      activeAlarm: null,
+    };
+    saveStoredData(nextData);
+    setData(nextData);
+    if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+  }, [stopAlarmSound]);
+
+  const snoozeAlarm = useCallback((minutes?: number) => {
+    const current = normalizeAlarmData(loadStoredData());
+    if (!current.activeAlarm) return;
+    const duration = Math.max(1, Math.round(minutes || current.settings.alarm.defaultSnoozeMinutes || 5));
+    ++alarmDeliveryGenerationRef.current;
+    stopAlarmSound();
+    alarmPopupShownRef.current = false;
+    const nextData = {
+      ...current,
+      activeAlarm: {
+        ...current.activeAlarm,
+        snoozeUntil: Date.now() + duration * 60 * 1000,
+        snoozeCount: current.activeAlarm.snoozeCount + 1,
+      },
+    };
+    saveStoredData(nextData);
+    setData(nextData);
+    if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+  }, [stopAlarmSound]);
+
+  dismissAlarmRef.current = dismissAlarm;
+  snoozeAlarmRef.current = snoozeAlarm;
+
+  useEffect(() => {
+    if (!isPillWindow()) return;
+    let cleanup: (() => void) | undefined;
+    let disposed = false;
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        cleanup = await listen<{ action: 'dismiss' | 'snooze'; minutes?: number }>('neurolog-alarm-action', (event) => {
+          if (disposed) return;
+          if (event.payload.action === 'dismiss') dismissAlarmRef.current?.();
+          else if (event.payload.action === 'snooze') snoozeAlarmRef.current?.(event.payload.minutes);
+        });
+      } catch (error) {
+        console.warn('Could not listen for alarm actions:', error);
+      }
+    })();
+    return () => { disposed = true; cleanup?.(); };
+  }, []);
+
   const closeAllPanels = useCallback(() => {
     isExpandedRef.current = false;
     isQuickAddOpenRef.current = false;
@@ -598,12 +750,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isAboutOpenRef.current = false;
     isSupportOpenRef.current = false;
     isStopwatchOpenRef.current = false;
+    isAlarmOpenRef.current = false;
     setIsExpanded(false);
     setIsQuickAddOpen(false);
     setIsSettingsOpen(false);
     setIsAboutOpen(false);
     setIsSupportOpen(false);
     setIsStopwatchOpen(false);
+    setIsAlarmOpen(false);
     if (isTauriEnvironment()) {
       void hideAllNativeWindows();
     }
@@ -978,11 +1132,253 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
+
+  const addAlarm = useCallback((alarm: Alarm): boolean => {
+    const current = normalizeAlarmData(loadStoredData());
+    const normalized = normalizeAlarm({ ...alarm, enabled: true });
+    if (current.alarms.some((existing) => getAlarmScheduleKey(existing) === getAlarmScheduleKey(normalized))) {
+      return false;
+    }
+    const nextData = { ...current, alarms: [...current.alarms, normalized] };
+    saveStoredData(nextData);
+    setData(nextData);
+    return true;
+  }, []);
+
+  const updateAlarm = useCallback((alarmId: string, updates: Partial<Alarm>): boolean => {
+    const current = normalizeAlarmData(loadStoredData());
+    const existing = current.alarms.find((alarm) => alarm.id === alarmId);
+    if (!existing) return false;
+    const candidate = normalizeAlarm({ ...existing, ...updates, enabled: true });
+    if (current.alarms.some((alarm) => alarm.id !== alarmId && getAlarmScheduleKey(alarm) === getAlarmScheduleKey(candidate))) {
+      return false;
+    }
+
+    const scheduleChanged = getAlarmScheduleKey(existing) !== getAlarmScheduleKey(candidate)
+      || existing.enabled !== candidate.enabled
+      || existing.soundId !== candidate.soundId;
+    if (scheduleChanged && current.activeAlarm?.alarmId === alarmId) {
+      ++alarmDeliveryGenerationRef.current;
+      stopAlarmSound();
+      alarmPopupShownRef.current = false;
+      if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+    } else if (scheduleChanged) {
+      ++alarmDeliveryGenerationRef.current;
+    }
+
+    const nextData = {
+      ...current,
+      alarms: current.alarms.map((alarm) => alarm.id === alarmId ? candidate : alarm),
+    };
+    saveStoredData(nextData);
+    setData(nextData);
+    return true;
+  }, [stopAlarmSound]);
+
+  const deleteAlarm = useCallback((alarmId: string) => {
+    const current = normalizeAlarmData(loadStoredData());
+    const active = current.activeAlarm?.alarmId === alarmId;
+    if (active) {
+      ++alarmDeliveryGenerationRef.current;
+      stopAlarmSound();
+      alarmPopupShownRef.current = false;
+      if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+    }
+    const nextData = {
+      ...current,
+      alarms: current.alarms.filter((alarm) => alarm.id !== alarmId),
+      activeAlarm: active ? null : current.activeAlarm,
+    };
+    saveStoredData(nextData);
+    setData(nextData);
+  }, [stopAlarmSound]);
+
+  const addAlarmSound = useCallback((sound: AlarmSoundFile) => {
+    const current = normalizeAlarmData(loadStoredData());
+    const nextData = { ...current, alarmSounds: [...current.alarmSounds.filter((item) => item.id !== sound.id), sound] };
+    saveStoredData(nextData);
+    setData(nextData);
+  }, []);
+
+  const deleteAlarmSound = useCallback((soundId: string) => {
+    const current = normalizeAlarmData(loadStoredData());
+    const fallback = current.settings.alarm.lastSoundId === soundId ? 'alarm-pulse' : current.settings.alarm.lastSoundId;
+    const nextData = {
+      ...current,
+      alarmSounds: current.alarmSounds.filter((sound) => sound.id !== soundId),
+      alarms: current.alarms.map((alarm) => alarm.soundId === soundId ? { ...alarm, soundId: fallback } : alarm),
+      settings: { ...current.settings, alarm: { ...current.settings.alarm, lastSoundId: fallback } },
+    };
+    saveStoredData(nextData);
+    setData(nextData);
+  }, []);
+
+  const toggleAlarm = useCallback((alarmId: string) => {
+    const current = normalizeAlarmData(loadStoredData());
+    const alarm = current.alarms.find((item) => item.id === alarmId);
+    if (!alarm) return;
+
+    const isActive = current.activeAlarm?.alarmId === alarmId;
+    const nextEnabled = !alarm.enabled;
+    const nextData = {
+      ...current,
+      alarms: current.alarms.map((item) => item.id === alarmId
+        ? { ...item, enabled: nextEnabled, ...(isActive && !nextEnabled ? { lastOutcome: 'dismissed' as const, lastOutcomeAt: Date.now() } : {}) }
+        : item),
+      activeAlarm: isActive && !nextEnabled ? null : current.activeAlarm,
+    };
+    if (isActive && !nextEnabled) {
+      ++alarmDeliveryGenerationRef.current;
+      stopAlarmSound();
+      alarmPopupShownRef.current = false;
+      if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+    } else {
+      ++alarmDeliveryGenerationRef.current;
+    }
+    saveStoredData(nextData);
+    setData(nextData);
+  }, [stopAlarmSound]);
+
+  // One authoritative alarm scheduler. The panel/editor never owns scheduling.
+  useEffect(() => {
+    if (isTauriEnvironment() && !isPillWindow()) return;
+
+    const evaluateAlarms = async () => {
+      if (alarmTriggerInFlightRef.current) return;
+      const now = Date.now();
+      const current = normalizeAlarmData(loadStoredData());
+      let nextData = current;
+
+      if (current.activeAlarm) {
+        const active = current.alarms.find((alarm) => alarm.id === current.activeAlarm!.alarmId);
+        if (!active) {
+          ++alarmDeliveryGenerationRef.current;
+          stopAlarmSound();
+          alarmPopupShownRef.current = false;
+          nextData = { ...current, activeAlarm: null };
+          saveStoredData(nextData);
+          setData(nextData);
+          if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+          return;
+        }
+
+        if (current.activeAlarm.snoozeUntil && now >= current.activeAlarm.snoozeUntil) {
+          const generation = alarmDeliveryGenerationRef.current;
+          alarmTriggerInFlightRef.current = true;
+          try {
+            nextData = { ...current, activeAlarm: { ...current.activeAlarm, triggeredAt: now, snoozeUntil: undefined } };
+            saveStoredData(nextData);
+            setData(nextData);
+            await startAlarmSoundRef.current(active, generation);
+            if (generation !== alarmDeliveryGenerationRef.current) return;
+            if (active.windowsNotification && !(nextData.settings.alarm.respectSilentMode && nextData.settings.silentMode)) {
+              void sendNativeNotification(`NeuroLog · ${active.label || 'Alarm'}`, `Snoozed alarm · ${formatAlarmClockTime(active.time)}`);
+            }
+            if (isTauriEnvironment() && isPillWindow()) {
+              const pillPosition = await getPillScreenPosition();
+              if (generation !== alarmDeliveryGenerationRef.current) return;
+              alarmPopupShownRef.current = true;
+              await openNativeWindow(WINDOW_LABELS.alarmPopup, pillPosition ? { x: pillPosition.x, y: pillPosition.y } : undefined);
+            }
+          } catch (error) {
+            console.warn('Could not complete snoozed alarm delivery:', error);
+          } finally {
+            alarmTriggerInFlightRef.current = false;
+          }
+          return;
+        }
+
+        if (!current.activeAlarm.snoozeUntil) {
+          const generation = alarmDeliveryGenerationRef.current;
+          await startAlarmSoundRef.current(active, generation);
+          if (generation !== alarmDeliveryGenerationRef.current) return;
+          if (!alarmPopupShownRef.current && isTauriEnvironment() && isPillWindow()) {
+            const pillPosition = await getPillScreenPosition();
+            if (generation !== alarmDeliveryGenerationRef.current) return;
+            alarmPopupShownRef.current = true;
+            try {
+              await openNativeWindow(WINDOW_LABELS.alarmPopup, pillPosition ? { x: pillPosition.x, y: pillPosition.y } : undefined);
+            } catch (error) {
+              alarmPopupShownRef.current = false;
+              console.warn('Could not open the alarm popup:', error);
+            }
+          }
+        }
+        return;
+      }
+
+      alarmPopupShownRef.current = false;
+
+      for (const alarm of current.alarms) {
+        if (!alarm.enabled) continue;
+        const due = getDueOccurrence(alarm, now);
+        if (due === null) continue;
+
+        const age = Math.max(0, now - due);
+        const missed = age > 60_000;
+        const stale = age > ALARM_MISSED_GRACE_MS;
+        const updatedAlarm = {
+          ...alarm,
+          lastTriggeredAt: due,
+          lastOutcome: missed ? 'missed' as const : 'triggered' as const,
+          lastOutcomeAt: now,
+          enabled: alarm.repeat.type === 'once' ? false : alarm.enabled,
+        };
+        nextData = {
+          ...current,
+          alarms: current.alarms.map((item) => item.id === alarm.id ? updatedAlarm : item),
+          activeAlarm: { alarmId: alarm.id, scheduledFor: due, triggeredAt: now, missed, snoozeCount: 0 },
+        };
+
+        const generation = alarmDeliveryGenerationRef.current;
+        alarmTriggerInFlightRef.current = true;
+        try {
+          saveStoredData(nextData);
+          setData(nextData);
+          if (!stale && !(nextData.settings.alarm.respectSilentMode && nextData.settings.silentMode)) {
+            await startAlarmSoundRef.current(updatedAlarm, generation);
+          }
+          if (generation !== alarmDeliveryGenerationRef.current) return;
+          if (alarm.windowsNotification && !(nextData.settings.alarm.respectSilentMode && nextData.settings.silentMode)) {
+            void sendNativeNotification(
+              stale ? `Missed alarm · ${updatedAlarm.label || 'Alarm'}` : (missed ? `Missed alarm · ${updatedAlarm.label || 'Alarm'}` : `NeuroLog · ${updatedAlarm.label || 'Alarm'}`),
+              stale ? `${formatAlarmClockTime(updatedAlarm.time)} was missed while NeuroLog was unavailable.` : (missed ? `${formatAlarmClockTime(updatedAlarm.time)} was missed.` : `Alarm set for ${formatAlarmClockTime(updatedAlarm.time)}.`),
+            );
+          }
+          if (isTauriEnvironment() && isPillWindow()) {
+            const pillPosition = await getPillScreenPosition();
+            if (generation !== alarmDeliveryGenerationRef.current) return;
+            alarmPopupShownRef.current = true;
+            await openNativeWindow(WINDOW_LABELS.alarmPopup, pillPosition ? { x: pillPosition.x, y: pillPosition.y } : undefined);
+          }
+        } catch (error) {
+          console.warn('Could not complete alarm delivery:', error);
+          alarmPopupShownRef.current = false;
+        } finally {
+          alarmTriggerInFlightRef.current = false;
+        }
+        break;
+      }
+    };
+
+    void evaluateAlarms();
+    const interval = window.setInterval(() => { void evaluateAlarms(); }, 1000);
+    return () => window.clearInterval(interval);
+  }, [stopAlarmSound]);
+
   const updateSettings = useCallback((updated: Partial<AppSettings>) => {
-    setData((prev) => ({
-      ...prev,
-      settings: { ...prev.settings, ...updated },
-    }));
+    setData((prev) => {
+      const next = {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          ...updated,
+          ...(updated.alarm ? { alarm: { ...prev.settings.alarm, ...updated.alarm } } : {}),
+        },
+      };
+      if (updated.alarm?.lastSoundId !== undefined || updated.alarm?.defaultWindowsNotification !== undefined || updated.alarm?.defaultSnoozeMinutes !== undefined || updated.alarm?.respectSilentMode !== undefined || updated.alarm?.snoozeDurationsMinutes !== undefined) saveStoredData(next);
+      return next;
+    });
   }, []);
 
   const resetSettings = () => {
@@ -993,13 +1389,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const factoryReset = () => {
+    ++alarmDeliveryGenerationRef.current;
+    stopAlarmSound();
+    alarmPopupShownRef.current = false;
     clearAllStoredData();
     const freshData: NeuroLogData = {
-      version: 1,
+      version: 2,
       exportedAt: Date.now(),
       categories: DEFAULT_CATEGORIES,
       tasks: INITIAL_TASKS,
       urgentTimer: null,
+      alarms: [],
+      alarmSounds: [],
+      activeAlarm: null,
       settings: DEFAULT_SETTINGS,
     };
     setData(freshData);
@@ -1019,11 +1421,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsAboutOpen(false);
     setIsSupportOpen(false);
     setIsStopwatchOpen(false);
+    setIsAlarmOpen(false);
     if (isTauriEnvironment()) void hideAllNativeWindows();
   };
 
   const importAppData = (imported: NeuroLogData) => {
-    setData(imported);
+    ++alarmDeliveryGenerationRef.current;
+    stopAlarmSound();
+    alarmPopupShownRef.current = false;
+    if (isTauriEnvironment()) void hideNativeWindow(WINDOW_LABELS.alarmPopup);
+    setData({ ...normalizeAlarmData(imported), activeAlarm: null });
     if (imported.categories.length > 0) {
       setActiveCategoryId(imported.categories[0].id);
     }
@@ -1031,11 +1438,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const getExportData = (): NeuroLogData => {
     return {
-      version: 1,
+      version: 2,
       exportedAt: Date.now(),
       categories: data.categories,
       tasks: data.tasks,
       urgentTimer: data.urgentTimer,
+      alarms: data.alarms,
+      alarmSounds: data.alarmSounds,
+      activeAlarm: data.activeAlarm,
       settings: data.settings,
     };
   };
@@ -1055,6 +1465,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isAboutOpen,
         isSupportOpen,
         isStopwatchOpen,
+        isAlarmOpen,
+        alarms: data.alarms,
+        alarmSounds: data.alarmSounds,
+        activeAlarm: data.activeAlarm,
         stopwatchState,
         timesUpModalOpen,
         activeConflict,
@@ -1070,6 +1484,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAboutOpen: setAboutOpen,
         setIsSupportOpen: setSupportOpen,
         setIsStopwatchOpen: setStopwatchOpen,
+        setIsAlarmOpen: setAlarmOpen,
         setTimesUpModalOpen,
         setActiveConflict,
         setTaskToDelete,
@@ -1098,6 +1513,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resetStopwatch,
         addStopwatchLap,
         clearStopwatchLaps,
+        addAlarm,
+        updateAlarm,
+        deleteAlarm,
+        addAlarmSound,
+        deleteAlarmSound,
+        toggleAlarm,
+        dismissAlarm,
+        snoozeAlarm,
         updateSettings,
         resetSettings,
         factoryReset,

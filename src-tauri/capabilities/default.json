@@ -11,6 +11,8 @@
     "about",
     "support",
     "timer-complete",
+    "alarm",
+    "alarm-popup",
     "click-through-control"
   ],
   "permissions": [

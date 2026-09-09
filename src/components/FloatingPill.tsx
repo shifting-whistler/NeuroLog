@@ -12,6 +12,7 @@ import {
   Play,
   Pause,
   RotateCcw,
+  AlarmClock,
 } from 'lucide-react';
 import { QuickActionKey } from '../types';
 import { ensurePillFitsWorkArea, fitPillToContent, getPillScreenPosition, isTauriEnvironment, positionCurrentNativeWindow, setNativeClickThrough, setNativeClickThroughControl } from '../utils/tauriBridge';
@@ -31,6 +32,7 @@ export const FloatingPill: React.FC = () => {
     setActiveCategoryId,
     setIsQuickAddOpen,
     setIsStopwatchOpen,
+    setIsAlarmOpen,
     stopwatchState,
     startStopwatch,
     pauseStopwatch,
@@ -267,6 +269,9 @@ export const FloatingPill: React.FC = () => {
       case 'stopwatch':
         setIsStopwatchOpen((prev) => !prev);
         break;
+      case 'alarm':
+        setIsAlarmOpen((prev) => !prev);
+        break;
       case 'quick_add':
         setIsQuickAddOpen((prev) => !prev);
         break;
@@ -276,7 +281,7 @@ export const FloatingPill: React.FC = () => {
     }
   };
 
-  const enabledActions = settings.enabledQuickActions || ['study', 'creative', 'urgent', 'stopwatch', 'quick_add'];
+  const enabledActions = settings.enabledQuickActions || ['study', 'creative', 'urgent', 'stopwatch', 'alarm', 'quick_add'];
   const hasClickThroughQuickAction = enabledActions.includes('click_through');
 
   // Keep the pill itself visually intact. When click-through mode is active,
@@ -546,6 +551,18 @@ export const FloatingPill: React.FC = () => {
                 {stopwatchState.isRunning && (
                   <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
                 )}
+              </button>
+            )}
+
+            {enabledActions.includes('alarm') && (
+              <button
+                type="button"
+                id="floating-quick-alarm"
+                onClick={(e) => handleQuickAction('alarm', e)}
+                title="Open Alarms"
+                className="p-1 rounded-full text-slate-400 hover:text-violet-400 hover:bg-white/[0.08] transition-colors"
+              >
+                <AlarmClock className="w-3.5 h-3.5" />
               </button>
             )}
 
