@@ -72,6 +72,15 @@ Use the task timer for focused sessions or the stopwatch when you want to track 
 
 ---
 
+## Alarm
+ 
+Have class or work at 12pm ? No worries, set an alarm, it doesn't depend on your native windows clock... 
+
+<img width="460" height="629" alt="Alarm" src="https://github.com/user-attachments/assets/97bedf2b-e636-4218-9003-b72fddf6562d" />
+
+---
+
+
 ## Creative Time
 
 Not every thought needs to become a task.
