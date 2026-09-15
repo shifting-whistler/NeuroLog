@@ -3,6 +3,33 @@ import { dedupeAlarmsBySchedule, normalizeAlarm } from './alarmScheduler';
 
 const STORAGE_KEY = 'neurolog_data_v1';
 
+const LAST_SUBCATEGORY_STORAGE_KEY = 'neurolog-last-subcategory-by-category';
+
+export const getLastSubcategoryId = (categoryId: string): string | null => {
+  try {
+    const raw = localStorage.getItem(LAST_SUBCATEGORY_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const value = parsed?.[categoryId];
+    return typeof value === 'string' && value ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setLastSubcategoryId = (categoryId: string, subcategoryId: string | null): void => {
+  try {
+    const raw = localStorage.getItem(LAST_SUBCATEGORY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    if (subcategoryId) parsed[categoryId] = subcategoryId;
+    else delete parsed[categoryId];
+    localStorage.setItem(LAST_SUBCATEGORY_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    // Ignore storage failures; task capture remains usable.
+  }
+};
+
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   bgOpacity: 0.90,

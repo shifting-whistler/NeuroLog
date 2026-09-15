@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { APP_VERSION } from '../config/links';
 
 export async function generateProjectZip(): Promise<Blob> {
   const zip = new JSZip();
@@ -7,7 +8,7 @@ export async function generateProjectZip(): Promise<Blob> {
   zip.file('package.json', JSON.stringify({
     name: 'neurolog',
     private: true,
-    version: '1.2.0',
+    version: APP_VERSION,
     type: 'module',
     scripts: {
       dev: 'vite',
@@ -126,7 +127,7 @@ NeuroLog is a lightweight, offline-first floating desktop notepad and task-inten
   if (tauriFolder) {
     tauriFolder.file('Cargo.toml', `[package]
 name = "neurolog"
-version = "1.2.0"
+version = "${APP_VERSION}"
 description = "Lightweight floating desktop notepad and task-intention companion for Windows"
 authors = ["Tanvir Mahtab"]
 edition = "2021"
@@ -160,7 +161,7 @@ serde_json = "1.0"
     tauriFolder.file('tauri.conf.json', JSON.stringify({
       "$schema": "https://schema.tauri.app/config/2",
       "productName": "NeuroLog",
-      "version": "1.2.0",
+      "version": "../package.json",
       "identifier": "com.neurolog.desktop",
       "build": {
         "beforeDevCommand": "npm run dev",

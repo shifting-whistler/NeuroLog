@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
+import { getLastSubcategoryId, setLastSubcategoryId } from '../utils/storage';
 import {
   Settings,
   Plus,
@@ -50,7 +51,12 @@ export const ExpandedPanel: React.FC = () => {
   const nativeExpanded = isExpandedWindow();
   if (isTauri && !nativeExpanded) return null;
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null);
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(() => {
+    const remembered = getLastSubcategoryId(activeCategoryId);
+    return categories.find((c) => c.id === activeCategoryId)?.subcategories.some((sub) => sub.id === remembered)
+      ? remembered
+      : null;
+  });
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [isAddingSubcategory, setIsAddingSubcategory] = useState(false);
@@ -62,6 +68,16 @@ export const ExpandedPanel: React.FC = () => {
 
   const [collapsedSubcategories, setCollapsedSubcategories] = useState<Set<string>>(new Set());
   const [isCompletedSectionCollapsed, setIsCompletedSectionCollapsed] = useState(false);
+
+  // Restore the last task-entry subcategory whenever the active category changes.
+  // The remembered value is validated against the current category so deleted or
+  // stale subcategories safely fall back to the category root.
+  useEffect(() => {
+    const currentCategory = categories.find((c) => c.id === activeCategoryId);
+    const remembered = getLastSubcategoryId(activeCategoryId);
+    const valid = currentCategory?.subcategories.some((sub) => sub.id === remembered) ? remembered : null;
+    setSelectedSubcategoryId(valid);
+  }, [activeCategoryId, categories]);
 
   // Filter visible categories based on settings (e.g. studyHidden)
   const visibleCategories = categories.filter((c) => {
@@ -484,7 +500,6 @@ export const ExpandedPanel: React.FC = () => {
                 <button
                   onClick={() => {
                     setActiveCategoryId(cat.id);
-                    setSelectedSubcategoryId(null);
                   }}
                   onDoubleClick={() => {
                     // Allow renaming for study category or custom categories
@@ -593,7 +608,11 @@ export const ExpandedPanel: React.FC = () => {
               {currentCategory && currentCategory.subcategories.length > 0 && (
                 <select
                   value={selectedSubcategoryId || ''}
-                  onChange={(e) => setSelectedSubcategoryId(e.target.value || null)}
+                  onChange={(e) => {
+                    const value = e.target.value || null;
+                    setSelectedSubcategoryId(value);
+                    setLastSubcategoryId(activeCategoryId, value);
+                  }}
                   className="bg-[#1e1e24] text-slate-400 text-[11px] rounded-lg px-2 py-1 border border-white/[0.08] focus:outline-none focus:text-slate-200"
                 >
                   <option value="">(Root)</option>

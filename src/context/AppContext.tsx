@@ -174,23 +174,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   isAlarmOpenRef.current = isAlarmOpen;
   isClickThroughRef.current = isClickThrough;
 
-  const [stopwatchState, setStopwatchState] = useState<StopwatchState>({
-    isRunning: false,
-    startTime: null,
-    accumulatedMs: 0,
-    laps: [],
+  // Load persisted stopwatch state synchronously so the pill does not first render
+  // as a normal pill and then jump into stopwatch mode during startup.
+  const [stopwatchState, setStopwatchState] = useState<StopwatchState>(() => {
+    const fallback: StopwatchState = {
+      isRunning: false,
+      startTime: null,
+      accumulatedMs: 0,
+      laps: [],
+    };
+    try {
+      const raw = localStorage.getItem('neurolog-stopwatch-state');
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw) as Partial<StopwatchState>;
+      if (!parsed || typeof parsed !== 'object') return fallback;
+      return {
+        ...fallback,
+        ...parsed,
+        isRunning: Boolean(parsed.isRunning),
+        startTime: typeof parsed.startTime === 'number' ? parsed.startTime : null,
+        accumulatedMs: typeof parsed.accumulatedMs === 'number' && Number.isFinite(parsed.accumulatedMs)
+          ? Math.max(0, parsed.accumulatedMs)
+          : 0,
+        laps: Array.isArray(parsed.laps) ? parsed.laps : [],
+      };
+    } catch {
+      return fallback;
+    }
   });
 
   // Stopwatch state is shared between native windows through localStorage.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('neurolog-stopwatch-state');
-      if (raw) setStopwatchState(JSON.parse(raw) as StopwatchState);
-    } catch {
-      // Keep defaults on malformed storage.
-    }
-  }, []);
-
   useEffect(() => {
     try {
       localStorage.setItem('neurolog-stopwatch-state', JSON.stringify(stopwatchState));

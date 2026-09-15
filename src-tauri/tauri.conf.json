@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "NeuroLog",
-  "version": "1.1.0",
+  "version": "../package.json",
   "identifier": "com.neurolog.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -51,7 +51,7 @@
         "minHeight": 400
       },
       {
-        "title": "NeuroLog \u00b7 Quick Add",
+        "title": "NeuroLog · Quick Add",
         "decorations": false,
         "transparent": true,
         "shadow": false,
@@ -70,7 +70,7 @@
         "minHeight": 220
       },
       {
-        "title": "NeuroLog \u00b7 Settings",
+        "title": "NeuroLog · Settings",
         "decorations": false,
         "transparent": true,
         "shadow": false,
@@ -89,7 +89,7 @@
         "minHeight": 220
       },
       {
-        "title": "NeuroLog \u00b7 Stopwatch",
+        "title": "NeuroLog · Stopwatch",
         "decorations": false,
         "transparent": true,
         "shadow": false,
@@ -108,7 +108,7 @@
         "minHeight": 220
       },
       {
-        "title": "NeuroLog \u00b7 About",
+        "title": "NeuroLog · About",
         "decorations": false,
         "transparent": true,
         "shadow": false,
@@ -127,7 +127,7 @@
         "minHeight": 220
       },
       {
-        "title": "NeuroLog \u00b7 Support",
+        "title": "NeuroLog · Support",
         "decorations": false,
         "transparent": true,
         "shadow": false,
@@ -146,7 +146,7 @@
         "minHeight": 220
       },
       {
-        "title": "NeuroLog \u00b7 Timer Complete",
+        "title": "NeuroLog · Timer Complete",
         "decorations": false,
         "transparent": true,
         "shadow": false,
@@ -203,7 +203,7 @@
         "minHeight": 280
       },
       {
-        "title": "NeuroLog \u00b7 Click-Through Control",
+        "title": "NeuroLog · Click-Through Control",
         "decorations": false,
         "transparent": true,
         "shadow": false,

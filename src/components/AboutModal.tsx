@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { useNativeSurface } from '../utils/nativeSurface';
 import { isNativeWindow } from '../utils/tauriBridge';
+import { APP_VERSION } from '../config/links';
 import {
   Info,
   X,
@@ -23,9 +24,9 @@ interface FAQItem {
 
 const FAQ_ITEMS: FAQItem[] = [
   {
-    question: "What's new in v1.1.0?",
+    question: `What's new in v${APP_VERSION}?`,
     answer:
-      'v1.1.0 adds the Alarm system with recurring scheduling, snooze and alarm controls, custom alarm sounds, and more reliable background scheduling, persistence, and recovery.',
+      'Fixed the glitch problem after reboot & reduced CPU consumption. Improved the pill UI & task input system.',
   },
   {
     question: 'Why not just use a normal notes/blocker app?',
@@ -135,7 +136,7 @@ export const AboutModal: React.FC = () => {
               <h3 className="font-bold text-xs text-slate-100 uppercase tracking-wider font-mono">
                 About NeuroLog
               </h3>
-              <p className="text-[10px] text-slate-400 font-mono">v1.1.0 · Local & Offline</p>
+              <p className="text-[10px] text-slate-400 font-mono">{`v${APP_VERSION} · Local & Offline`}</p>
             </div>
           </div>
 

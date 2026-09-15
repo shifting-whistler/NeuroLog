@@ -39,29 +39,26 @@ export const StopwatchModal: React.FC = () => {
     minHeight: 220,
   });
 
-  // Smooth animation frame loop when running
+  // Update the visual clock at 20 FPS instead of one React render per animation
+  // frame. Elapsed time is still derived from Date.now(), so the displayed value
+  // stays anchored to real time while substantially reducing WebView CPU usage.
   useEffect(() => {
-    let animId: number;
+    if (!stopwatchState.isRunning || stopwatchState.startTime === null) {
+      setDisplayMs(stopwatchState.accumulatedMs);
+      return;
+    }
 
     const updateTime = () => {
-      if (stopwatchState.isRunning && stopwatchState.startTime !== null) {
-        const elapsed = stopwatchState.accumulatedMs + (Date.now() - stopwatchState.startTime);
-        setDisplayMs(elapsed);
-        animId = requestAnimationFrame(updateTime);
-      } else {
-        setDisplayMs(stopwatchState.accumulatedMs);
+      if (stopwatchState.startTime !== null) {
+        setDisplayMs(
+          stopwatchState.accumulatedMs + (Date.now() - stopwatchState.startTime)
+        );
       }
     };
 
-    if (stopwatchState.isRunning) {
-      animId = requestAnimationFrame(updateTime);
-    } else {
-      setDisplayMs(stopwatchState.accumulatedMs);
-    }
-
-    return () => {
-      if (animId) cancelAnimationFrame(animId);
-    };
+    updateTime();
+    const interval = window.setInterval(updateTime, 50);
+    return () => window.clearInterval(interval);
   }, [stopwatchState.isRunning, stopwatchState.startTime, stopwatchState.accumulatedMs]);
 
   if (!isOpen) return null;

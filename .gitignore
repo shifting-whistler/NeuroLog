@@ -25,3 +25,7 @@ dist-ssr
 
 # Tauri
 src-tauri/target
+
+# Ignore local file history extensions
+.history/
+.lh/

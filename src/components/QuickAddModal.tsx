@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { getLastSubcategoryId, setLastSubcategoryId } from '../utils/storage';
 import { useNativeSurface } from '../utils/nativeSurface';
 import { isNativeWindow } from '../utils/tauriBridge';
 import { Plus, X, Zap, GripHorizontal } from 'lucide-react';
@@ -39,8 +40,14 @@ export const QuickAddModal: React.FC = () => {
   useEffect(() => {
     if (isOpen) {
       setTitle('');
-      setTargetCategory(activeCategoryId || categories[0]?.id || 'cat-study');
-      setTargetSubcategory('');
+      const nextCategoryId = activeCategoryId || categories[0]?.id || 'cat-study';
+      const nextCategory = categories.find((c) => c.id === nextCategoryId);
+      const rememberedSubcategory = getLastSubcategoryId(nextCategoryId);
+      const validSubcategory = nextCategory?.subcategories.some((sub) => sub.id === rememberedSubcategory)
+        ? rememberedSubcategory
+        : '';
+      setTargetCategory(nextCategoryId);
+      setTargetSubcategory(validSubcategory || '');
       setTimeout(() => {
         inputRef.current?.focus();
       }, 50);
@@ -56,8 +63,14 @@ export const QuickAddModal: React.FC = () => {
       cleanup = await win.onFocusChanged(({ payload: focused }) => {
         if (!focused) return;
         setTitle('');
-        setTargetCategory(activeCategoryId || categories[0]?.id || 'cat-study');
-        setTargetSubcategory('');
+        const nextCategoryId = activeCategoryId || categories[0]?.id || 'cat-study';
+        const nextCategory = categories.find((c) => c.id === nextCategoryId);
+        const rememberedSubcategory = getLastSubcategoryId(nextCategoryId);
+        const validSubcategory = nextCategory?.subcategories.some((sub) => sub.id === rememberedSubcategory)
+          ? rememberedSubcategory
+          : '';
+        setTargetCategory(nextCategoryId);
+        setTargetSubcategory(validSubcategory || '');
         window.setTimeout(() => inputRef.current?.focus(), 40);
       });
     })();
@@ -167,7 +180,12 @@ export const QuickAddModal: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setTargetCategory(c.id);
-                    setTargetSubcategory('');
+                    const rememberedSubcategory = getLastSubcategoryId(c.id);
+                    const validSubcategory = c.subcategories.some((sub) => sub.id === rememberedSubcategory)
+                      ? rememberedSubcategory
+                      : '';
+                    setTargetSubcategory(validSubcategory || '');
+                    setLastSubcategoryId(c.id, validSubcategory || null);
                   }}
                   className={`py-1.5 px-2 rounded-xl text-xs font-medium truncate transition-all text-center ${
                     targetCategory === c.id
@@ -190,7 +208,11 @@ export const QuickAddModal: React.FC = () => {
               <select
                 id="quick-add-subcategory"
                 value={targetSubcategory}
-                onChange={(e) => setTargetSubcategory(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setTargetSubcategory(value);
+                  setLastSubcategoryId(targetCategory, value || null);
+                }}
                 className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[#0d0d0e] border border-white/[0.08] text-slate-200 focus:outline-none focus:border-blue-500"
               >
                 <option value="">(Root Category)</option>

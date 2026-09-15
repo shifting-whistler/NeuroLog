@@ -60,31 +60,27 @@ export const FloatingPill: React.FC = () => {
     startY: 24,
   });
 
-  // Live stopwatch time tracking on the floating pill
+  // The pill only needs a modest visual refresh rate. Keep elapsed time based on
+  // Date.now() so throttling renders cannot make the stopwatch itself inaccurate.
   const [stopwatchMs, setStopwatchMs] = useState<number>(() => stopwatchState.accumulatedMs);
 
   useEffect(() => {
-    let animId: number;
+    if (!stopwatchState.isRunning || stopwatchState.startTime === null) {
+      setStopwatchMs(stopwatchState.accumulatedMs);
+      return;
+    }
 
     const updateTime = () => {
-      if (stopwatchState.isRunning && stopwatchState.startTime !== null) {
-        const elapsed = stopwatchState.accumulatedMs + (Date.now() - stopwatchState.startTime);
-        setStopwatchMs(elapsed);
-        animId = requestAnimationFrame(updateTime);
-      } else {
-        setStopwatchMs(stopwatchState.accumulatedMs);
+      if (stopwatchState.startTime !== null) {
+        setStopwatchMs(
+          stopwatchState.accumulatedMs + (Date.now() - stopwatchState.startTime)
+        );
       }
     };
 
-    if (stopwatchState.isRunning) {
-      animId = requestAnimationFrame(updateTime);
-    } else {
-      setStopwatchMs(stopwatchState.accumulatedMs);
-    }
-
-    return () => {
-      if (animId) cancelAnimationFrame(animId);
-    };
+    updateTime();
+    const interval = window.setInterval(updateTime, 50);
+    return () => window.clearInterval(interval);
   }, [stopwatchState.isRunning, stopwatchState.startTime, stopwatchState.accumulatedMs]);
 
   // Sync position from settings on mount or reset (for browser mode)
@@ -359,7 +355,7 @@ export const FloatingPill: React.FC = () => {
         opacity: currentOpacity,
         pointerEvents: 'auto',
         width: 'max-content',
-        height: 'max-content',
+        height: '28px',
       }}
       className={`fixed top-0 left-0 z-50 transition-opacity duration-200 select-none ${
         isDragging ? 'cursor-grabbing' : 'cursor-default'
@@ -367,7 +363,7 @@ export const FloatingPill: React.FC = () => {
     >
       <div
         onClick={handlePillClick}
-        className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#16161a]/95 border shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all overflow-hidden cursor-pointer ${
+        className={`group relative flex items-center h-7 gap-2 px-3 py-0 rounded-full bg-[#16161a]/95 border shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all overflow-hidden cursor-pointer ${
           isExpanded
             ? 'border-blue-500/60 shadow-[0_0_20px_rgba(59,130,246,0.3)] bg-[#16161a]'
             : isStopwatchActive

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useApp } from '../context/AppContext';
 import { useNativeSurface } from '../utils/nativeSurface';
+import { APP_VERSION } from '../config/links';
 import { isNativeWindow, isTauriEnvironment, positionNativeWindow, ensurePillFitsWorkArea, WINDOW_LABELS, openExternalUrl } from '../utils/tauriBridge';
 import {
   X,
@@ -1117,7 +1118,7 @@ export const SettingsModal: React.FC = () => {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 bg-[#0d0d0e]/80 border-t border-white/[0.08] text-[11px] text-slate-500 shrink-0">
-          <span>NeuroLog v1.1.0 · Local & Offline</span>
+          <span>{`NeuroLog v${APP_VERSION} · Local & Offline`}</span>
           <button
             onClick={() => setIsSettingsOpen(false)}
             className="px-4 py-1.5 rounded-xl bg-white/[0.08] text-slate-200 font-medium hover:bg-white/[0.12] transition-colors border border-white/[0.08]"
